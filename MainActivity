@@ -1,0 +1,384 @@
+import android.system.*;
+import androidx.appcompat.app.AppCompatActivity;
+import android.Manifest;
+import android.annotation.SuppressLint;
+import android.app.ActivityManager;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.text.InputType;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.AdapterView;
+import android.widget.BaseAdapter;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ListView;
+import android.widget.TextView;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+public class MainActivity extends AppCompatActivity {
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+    }
+    
+    private boolean FileInitialization = false;
+    private boolean[] selection;
+    private File[] files;
+    private int FileCount;
+    private List<String> filesList;
+    private Button reloadButton;
+    private File dir;
+    private String currentPath;
+    private boolean isLongClick;
+    private int selectedItemIndex;
+
+    @Override
+    protected void onResume () {
+        super.onResume();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && arePermissionsFalse()) {
+            requestPermissions(PERMISSIONS, REQUEST_PERMISSIONS);
+            return;
+        }
+        if (!FileInitialization) {
+            currentPath = String.valueOf(Environment.getExternalStoragePublicDirectory((Environment.DIRECTORY_DOWNLOADS)));
+            final String rootPath = currentPath.substring(0, currentPath.lastIndexOf('/'));
+            dir = new File(currentPath);
+            files = dir.listFiles();
+            final TextView pathOutput = findViewById((R.id.pathOutput));
+            pathOutput.setText(currentPath.substring(currentPath.lastIndexOf('/') + 1));
+            FileCount = files.length;
+            final ListView listView = findViewById(R.id.listView);
+            final TextAdapter textAdapter1 = new TextAdapter();
+            listView.setAdapter(textAdapter1);
+            filesList = new ArrayList<>();
+
+
+            for(int i = 0; i < FileCount; i++) {
+                filesList.add(String.valueOf(files[i].getAbsolutePath()));
+            }
+
+            textAdapter1.setData(filesList);
+            selection = new boolean[files.length];
+            reloadButton = findViewById(R.id.REFRESH);
+            reloadButton.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    files = dir.listFiles();
+                    if(files==null){
+                        return;
+                    }
+                    FileCount = files.length;
+                    filesList.clear();
+                    for (int i = 0; i < FileCount; i++) {
+                        filesList.add(String.valueOf(files[i].getAbsolutePath()));
+                    }
+                    textAdapter1.setData(filesList);
+                }
+            });
+
+            final Button goback = findViewById(R.id.Back);
+            goback.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if(currentPath.equals(rootPath)) {
+                        return;
+                    }
+                    currentPath = currentPath.substring(0, currentPath.lastIndexOf('/'));
+                    dir = new File(currentPath);
+                    pathOutput.setText(currentPath.substring(currentPath.lastIndexOf('/'))+1);
+                    reloadButton.callOnClick();
+                    selection = new boolean[files.length];
+                    textAdapter1.setSelection(selection);
+                }
+            });
+            listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+                @Override
+                public void onItemClick(AdapterView<?> adapterView, View view, final int i, long l) {
+                    new Handler().postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            if(!isLongClick){
+                                if(i > files.length) {
+                                    return;
+                                }
+                                if(files[i].isDirectory()) {
+                                    currentPath = files[i].getAbsolutePath();
+                                    dir = new File(currentPath);
+                                    pathOutput.setText(currentPath.substring(currentPath.lastIndexOf('/')) + 1);
+                                    reloadButton.callOnClick();
+                                }
+                            }
+                        }
+                    },50);
+                }
+            });
+            listView.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
+                @Override
+                public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
+                    isLongClick = true;
+                    selection[position] = !selection[position];
+                    textAdapter1.setSelection(selection);
+
+                    int filesSelected = 0;
+                    for (boolean aSelection : selection) {
+                        if (aSelection) {
+                            filesSelected++;
+                        }
+                    }
+                    if (filesSelected>0) {
+                        if(filesSelected==1){
+                            selectedItemIndex = position;
+                            findViewById(R.id.rename).setVisibility(View.VISIBLE);
+                        } else{
+                            findViewById(R.id.rename).setVisibility(View.GONE);
+                        }
+                        findViewById(R.id.bottomBar).setVisibility(View.VISIBLE);
+                    } else {
+                        findViewById(R.id.bottomBar).setVisibility(View.GONE);
+                    }
+                    new Handler().postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                        isLongClick = false;
+                    }
+                },1000);
+                    return false;
+                }
+            });
+            final Button button1 = findViewById(R.id.button1);
+
+            button1.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    final AlertDialog.Builder deleteDialog = new AlertDialog.Builder(MainActivity.this);
+                    deleteDialog.setTitle("delete");
+                    deleteDialog.setMessage("Do you really want to delete it?");
+                    deleteDialog.setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int which) {
+                            for (int i = 0; i < files.length; i++) {
+                                if (selection[i]) {
+                                    try {
+                                        delete(files[i]);
+                                    } catch (ErrnoException e) {
+                                        e.printStackTrace();
+                                    }
+                                    selection[i] = false;
+                                }
+                            }
+                            files = dir.listFiles();
+                            FileCount = files.length;
+                            filesList.clear();
+
+                            for (int i = 0; i < FileCount; i++) {
+                                filesList.add(String.valueOf(files[i].getAbsolutePath()));
+                            }
+                            textAdapter1.setData(filesList);
+                        }
+                    });
+                    deleteDialog.setNegativeButton("No", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int which) {
+                            dialog.cancel();
+                        }
+                    });
+                    deleteDialog.show();
+                }
+            });
+
+            final Button NewFolder = findViewById(R.id.newFolder);
+            NewFolder.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    final AlertDialog.Builder newFolderDialog = new AlertDialog.Builder(MainActivity.this);
+                    newFolderDialog.setTitle("New Folder");
+                    final EditText input = new EditText(MainActivity.this);
+                    input.setInputType(InputType.TYPE_CLASS_TEXT);
+                    newFolderDialog.setView(input);
+                    newFolderDialog.setPositiveButton("ok", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int which) {
+                            final File newFolder = new File(currentPath+"/"+input.getText());
+                            if(!newFolder.exists()){
+                                newFolder.mkdir();
+                                reloadButton.callOnClick();
+                                selection = new boolean[files.length];
+                                textAdapter1.setSelection(selection);
+
+                            }
+                        }
+                    });
+                    newFolderDialog.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int which) {
+                            dialog.cancel();
+                        }
+                    });
+                    newFolderDialog.show();
+                }
+            });
+
+            final Button renameButton = findViewById(R.id.rename);
+            renameButton.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    final AlertDialog.Builder renameDialog = new AlertDialog.Builder(MainActivity.this);
+                    renameDialog.setTitle("Rename file");
+                    final EditText input = new EditText(MainActivity.this);
+                    String renamePath = files[selectedItemIndex].getAbsolutePath();
+                    input.setText(renamePath.substring((renamePath.lastIndexOf('/'))));
+                    input.setInputType(InputType.TYPE_CLASS_TEXT);
+                    renameDialog.setView(input);
+                    renameDialog.setPositiveButton("Rename", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int i) {
+                            String string = new File(renamePath).getParent() + "/"+ input.getText();
+                            try {
+                                Os.rename(renamePath, string);
+                                reloadButton.callOnClick();
+                            } catch (ErrnoException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    });
+                    renameDialog.show();
+                }
+            });
+            FileInitialization = true;
+        } else {
+            reloadButton.callOnClick();
+
+        }
+    }
+        class TextAdapter extends BaseAdapter {
+            private List<String> data = new ArrayList<>();
+            private boolean[] selection;
+
+
+            public void setData(List<String> data) {
+                if (data != null) {
+                    this.data.clear();
+                    if (data.size() > 0) {
+                        this.data.addAll(data);
+                    }
+                    notifyDataSetChanged();
+                }
+            }
+
+            void setSelection(boolean[] selection) {
+                if (selection != null) {
+                    this.selection = new boolean[selection.length];
+                    for (int i = 0; i < selection.length; i++) {
+                        this.selection[i] = selection[i];
+                    }
+                    notifyDataSetChanged();
+                }
+            }
+
+            @Override
+            public int getCount() {
+                return data.size();
+            }
+
+            @Override
+            public Object getItem(int position) {
+                return data.get(position);
+            }
+
+            @Override
+            public long getItemId(int position) {
+                return 0;
+            }
+
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                if (convertView == null) {
+                    convertView = LayoutInflater.from(parent.getContext()).inflate(R.layout.item, parent, false);
+                    convertView.setTag(new ViewHolder((TextView) convertView.findViewById(R.id.textItem)));
+                }
+                ViewHolder holder = (ViewHolder) convertView.getTag();
+                final String item = (String) getItem(position);
+                holder.info.setText(item.substring(item.lastIndexOf('/') + 1));
+                if (selection != null) {
+                    if (selection[position]) {
+                        holder.info.setBackgroundColor(Color.GRAY);
+                    } else {
+                        holder.info.setBackgroundColor(Color.WHITE);
+                    }
+                }
+                return convertView;
+            }
+            class ViewHolder {
+                TextView info;
+
+                ViewHolder(TextView info) {
+                    this.info = info;
+                }
+            }
+        }
+        private static final int REQUEST_PERMISSIONS = 1234;
+        private static final String[] PERMISSIONS = {
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+        };
+
+        private static final int PERMISSIONS_COUNT = 2;
+
+
+        @SuppressLint("NewAPI")
+        private boolean arePermissionsFalse () {
+                int p = 0;
+                while (p < PERMISSIONS_COUNT) {
+                    if (checkSelfPermission(PERMISSIONS[p]) != PackageManager.PERMISSION_GRANTED) {
+                        return true;
+                    }
+                    p++;
+                }
+            return false;
+        }
+
+    private void delete(File fileOrFolder) throws ErrnoException {
+        if(fileOrFolder.isDirectory()) {
+            if(fileOrFolder.list().length == 0) {
+                Os.remove(fileOrFolder.getAbsolutePath());
+            } else {
+                String[] files = fileOrFolder.list();
+                for(String temp : files) {
+                    File temporary = new File(fileOrFolder, temp);
+                    delete(temporary);
+                }
+                if(fileOrFolder.list().length == 0) {
+                    Os.remove(fileOrFolder.getAbsolutePath());
+                }
+            }
+        } else {
+            Os.remove(fileOrFolder.getAbsolutePath());
+        }
+    }
+
+    @SuppressLint("NewAPI")
+    @Override
+    public void onRequestPermissionsResult(final int requestCode, final String[] permissions, final int[] grantResults) {
+        if(requestCode==REQUEST_PERMISSIONS && grantResults.length>0) {
+            if(arePermissionsFalse()) {
+                ((ActivityManager) Objects.requireNonNull(this.getSystemService(ACTIVITY_SERVICE))).clearApplicationUserData();
+                recreate();
+            } else {
+                onResume();
+            }
+        }
+    }
+}
